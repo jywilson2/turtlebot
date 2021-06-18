@@ -1,0 +1,205 @@
+<launch>
+  <arg name="database_path"     default="rtabmap.db"/>
+  <arg name="rgbd_odometry"     default="false"/>
+  <arg name="rtabmapviz"        default="true"/>
+  <arg name="localization"      default="false"/>
+  <arg name="simulation"        default="false"/>
+  <arg name="sw_registered"     default="false"/>
+  
+  <arg name="rtabmap_base_args" default=
+      "--Icp/VoxelSize 0.05
+      --Icp/PointToPlaneRadius 0
+      --Icp/PointToPlaneK 20
+      --Icp/PMOutlierRatio 0.65
+      --Icp/Epsilon 0.005
+      --Icp/PointToPlaneMinComplexity 0
+      --Odom/ScanKeyFrameThr 0.7
+      --OdomF2M/ScanMaxSize 15000
+      --Optimizer/GravitySigma 0.3"/>
+  
+  <arg     if="$(arg localization)" name="rtabmap_localization_arg"  default=""/>
+  <arg unless="$(arg localization)" name="rtabmap_localization_arg"  default="--delete_db_on_start"/>
+
+  <arg     if="$(arg simulation)" name="rgb_topic"   default="/camera/rgb/image_raw"/>
+  <arg unless="$(arg simulation)" name="rgb_topic"   default="/camera/rgb/image_rect_color"/>
+  <arg     if="$(arg simulation)" name="depth_topic" default="/camera/depth/image_raw"/>
+  <arg unless="$(arg simulation)" name="depth_topic" default="/camera/depth_registered/image_raw"/>
+  <arg name="camera_info_topic" default="/camera/rgb/camera_info"/>
+  
+  <arg name="wait_for_transform"  default="0.5"/> 
+  <!-- 
+      robot_state_publisher's publishing frequency in "turtlebot_bringup/launch/includes/robot.launch.xml" 
+      can be increase from 5 to 10 Hz to avoid some TF warnings.
+  -->
+  
+  <!-- Navigation stuff (move_base) -->
+  <!-- 
+  <include unless="$(arg simulation)" file="$(find turtlebot_bringup)/launch/3dsensor.launch">
+     <arg     if="$(arg sw_registered)" name="depth_registration" value="false"/>
+     <arg unless="$(arg sw_registered)" name="depth_registration" value="true"/>
+  </include>
+  -->
+  
+  <!-- 
+  $ roslaunch realsense2_camera rs_camera.launch \
+    align_depth:=true \
+    unite_imu_method:="linear_interpolation" \
+    enable_gyro:=true \
+    enable_accel:=true
+  -->    
+  <include file="(find realsense2_camera)/launch/rs_camera.launch">
+    <arg name="align_depth" type="bool" value="true"/>
+    <arg name="unite_imu_method" type="string" value="linear_interpolation"/>
+    <arg name="enable_gyro" type="bool" value="true"/>
+    <arg name="enable_accel" type="bool" value="true"/>
+  </include> 
+  
+  <!-- 
+  rosrun imu_filter_madgwick imu_filter_node \
+    _use_mag:=false \
+    _publish_tf:=false \
+    _world_frame:="enu" \
+    /imu/data_raw:=/camera/imu \
+    /imu/data:=/rtabmap/imu
+  -->    
+  <node name=imu_filter_node" pkg="imu_filter_madgwick" type="imu_filter_node" output="screen" args="">
+    <param name="use_mag" type="bool" value="false"/>
+    <param name="publish_tf" type="bool" value="false"/>
+    <param name="world_frame" type="string" value="enu"/>
+    <remap from="/imu/data_raw" to="/camera/imu"/>
+    <remap from="/imu/data" to="/rtabmap/imu"/>
+  </node>
+  
+  <include file="$(find turtlebot_navigation)/launch/includes/move_base.launch.xml"/>
+  
+  <!-- Mapping -->
+  
+  <!-- 
+  rosrun nodelet nodelet standalone rtabmap_ros/point_cloud_xyz \
+    _approx_sync:=false  \
+    /depth/image:=/camera/depth/image_rect_raw \
+    /depth/camera_info:=/camera/depth/camera_info \
+    _decimation:=4  
+   -->
+  <node pkg="nodelet" type="nodelet" name="standalone" args="rtabmap_ros/point_cloud_xyz">
+    <param name="approx_sync" type="bool" value="false"/>
+    <remap from="/depth/image" to="$(arg depth_topic)"/>
+    <remap from="/depth/camera_info" to="$(arg camera_info_topic)"/>
+    <param name="decimation" type="int" value="4"/>
+  </node>
+  
+  <!--
+  roslaunch rtabmap_ros rtabmap.launch\
+    rtabmap_args:="\
+      --delete_db_on_start \
+      --Icp/VoxelSize 0.05 \
+      --Icp/PointToPlaneRadius 0 \
+      --Icp/PointToPlaneK 20 \
+      --Icp/CorrespondenceRatio 0.2 \
+      --Icp/PMOutlierRatio 0.65 \
+      --Icp/Epsilon 0.005 \
+      --Icp/PointToPlaneMinComplexity 0 \
+      --Odom/ScanKeyFrameThr 0.7 \
+      --OdomF2M/ScanMaxSize 15000 \
+      --Optimizer/GravitySigma 0.3 \
+      --RGBD/ProximityPathMaxNeighbors 1 \
+      --Reg/Strategy 1" \
+    icp_odometry:=true \
+    scan_cloud_topic:=/cloud \
+    subscribe_scan_cloud:=true \
+    depth_topic:=/camera/aligned_depth_to_color/image_raw \
+    rgb_topic:=/camera/color/image_raw \
+    camera_info_topic:=/camera/color/camera_info \
+    approx_sync:=false \
+    wait_imu_to_init:=true \
+    imu_topic:=/rtabmap/imu \
+    rviz:=false 
+   -->
+  <group ns="rtabmap">
+
+    <node name="rtabmap" pkg="rtabmap_ros" type="rtabmap" output="screen" args="$(arg rtabmap_localization_arg) $(arg rtabmap_base_args)">
+      <param name="database_path"       type="string" value="$(arg database_path)"/>
+      <param name="frame_id"            type="string" value="base_footprint"/>
+      <param name="wait_for_transform_duration"  type="double"   value="$(arg wait_for_transform)"/>
+      <param name="subscribe_depth"     type="bool"   value="true"/>
+      <param name="subscribe_scan"      type="bool"   value="false"/>
+      <param name="subscribe_scan_cloud" type="bool"  value="true"/>
+          <param name="gen_scan"             type="bool"  value="false"/>
+      <param name="map_negative_poses_ignored" type="bool" value="true"/>
+      
+      <!-- From the roslaunch example for hand scanning with the l515 -->
+      <param name="icp_odometry" type="bool" value="true"/>
+      <param name="scan_cloud_topic" type="string" value="/cloud"/>
+      <param name="approx_sync" type="bool" value="false"/>
+      <param name="wait_imu_to_init" type="bool" value="true"/>
+      <param name="imu_topic" type="string" value="/rtabmap/imu"/>
+
+      <!-- When sending goals on /rtabmap/goal topic, use actionlib to communicate with move_base --> 
+      <param name="use_action_for_goal" type="bool" value="true"/>
+          <remap from="move_base"            to="/move_base"/>
+    
+      <!-- inputs -->
+      <remap from="scan"            to="/scan"/>
+      <remap from="rgb/image"       to="$(arg rgb_topic)"/>
+      <remap from="depth/image"     to="$(arg depth_topic)"/>
+      <remap from="rgb/camera_info" to="$(arg camera_info_topic)"/>
+
+          <!-- Fix odom covariance as in simulation the covariance in /odom topic is high (0.1 for linear and 0.05 for angular) -->
+          <param unless="$(arg rgbd_odometry)" name="odom_frame_id" value="odom"/>
+          <param unless="$(arg rgbd_odometry)" name="odom_tf_linear_variance" value="0.001"/>
+          <param unless="$(arg rgbd_odometry)" name="odom_tf_angular_variance" value="0.001"/>
+      
+      <!-- output -->
+      <remap from="grid_map" to="/map"/>
+    
+      <!-- RTAB-Map's parameters: do "rosrun rtabmap rtabmap (double-dash)params" to see the list of available parameters. -->
+      <param name="RGBD/ProximityBySpace"        type="string" value="true"/>   <!-- Local loop closure detection (using estimated position) with locations in WM -->
+      <param name="RGBD/OptimizeFromGraphEnd"    type="string" value="false"/>  <!-- Set to false to generate map correction between /map and /odom -->
+      <param name="Kp/MaxDepth"                  type="string" value="4.0"/>
+      <param name="Reg/Strategy"                 type="string" value="1"/>      <!-- Loop closure transformation: 0=Visual, 1=ICP, 2=Visual+ICP -->
+      <param name="Icp/CorrespondenceRatio"      type="string" value="0.2"/>
+      <param name="Vis/MinInliers"               type="string" value="15"/>      <!-- 3D visual words minimum inliers to accept loop closure -->
+      <param name="Vis/InlierDistance"           type="string" value="0.1"/>    <!-- 3D visual words correspondence distance -->
+      <param name="RGBD/AngularUpdate"           type="string" value="0.1"/>    <!-- Update map only if the robot is moving -->
+      <param name="RGBD/LinearUpdate"            type="string" value="0.1"/>    <!-- Update map only if the robot is moving -->
+      <param name="RGBD/ProximityPathMaxNeighbors" type="string" value="1"/> 
+      <param name="Rtabmap/TimeThr"              type="string" value="0"/>
+      <param name="Mem/RehearsalSimilarity"      type="string" value="0.30"/>
+      <param name="Reg/Force3DoF"                type="string" value="true"/>
+      <param name="GridGlobal/MinSize"           type="string" value="20"/>
+
+      
+      <!-- localization mode -->
+      <param     if="$(arg localization)" name="Mem/IncrementalMemory" type="string" value="false"/>
+      <param unless="$(arg localization)" name="Mem/IncrementalMemory" type="string" value="true"/>
+      <param name="Mem/InitWMWithAllNodes" type="string" value="$(arg localization)"/> 
+    </node>
+   
+    <!-- Odometry : ONLY for testing without the actual robot! /odom TF should not be already published. -->
+    <node if="$(arg rgbd_odometry)" pkg="rtabmap_ros" type="rgbd_odometry" name="rgbd_odometry" output="screen">
+      <param name="frame_id"                    type="string" value="base_footprint"/>
+      <param name="wait_for_transform_duration" type="double" value="$(arg wait_for_transform)"/>
+      <param name="Reg/Force3DoF"               type="string" value="true"/>
+      <param name="Vis/InlierDistance"          type="string" value="0.05"/>
+      
+      <remap from="rgb/image"       to="$(arg rgb_topic)"/>
+      <remap from="depth/image"     to="$(arg depth_topic)"/>
+      <remap from="rgb/camera_info" to="$(arg camera_info_topic)"/>
+    </node>
+    
+    <!-- visualization with rtabmapviz -->
+    <node if="$(arg rtabmapviz)" pkg="rtabmap_ros" type="rtabmapviz" name="rtabmapviz" args="-d $(find rtabmap_ros)/launch/config/rgbd_gui.ini" output="screen">
+      <param name="subscribe_depth"             type="bool" value="true"/>
+      <param name="subscribe_scan"              type="bool" value="false"/>
+      <param name="frame_id"                    type="string" value="base_footprint"/>
+      <param name="wait_for_transform_duration" type="double" value="$(arg wait_for_transform)"/>
+    
+      <remap from="rgb/image"       to="$(arg rgb_topic)"/>
+      <remap from="depth/image"     to="$(arg depth_topic)"/>
+      <remap from="rgb/camera_info" to="$(arg camera_info_topic)"/>
+      <remap from="scan"            to="/scan"/>
+    </node>
+    
+  </group>  
+
+</launch>
