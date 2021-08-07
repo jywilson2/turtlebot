@@ -103,7 +103,7 @@
       <param name="subscribe_scan"      type="bool"   value="false"/>
       <param name="subscribe_scan_cloud" type="bool"  value="false"/>
       <param name="gen_scan"            type="bool"   value="false"/>
-      <param name="map_negative_poses_ignored" type="bool" value="true"/>
+      <param name="map_always_update"   type="bool" value="true"/>
       
       <!-- From the roslaunch example for hand scanning with the l515 -->
       <param name="icp_odometry" type="bool" value="true"/>

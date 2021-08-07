@@ -9,7 +9,7 @@
   <!-- Mount and camera parameters -->
   <xacro:property name="pole_px" value="0.103" />
   <xacro:property name="pole_py" value="-0.098"/>
-  <xacro:property name="pole_pz" value="0.195" />
+  <xacro:property name="pole_pz" value="0.150" />
 
   <xacro:property name="d455_bracket_end_offset_py" value="0.02" />
   <xacro:property name="d455_bracket_end_offset_pz" value="0" />
